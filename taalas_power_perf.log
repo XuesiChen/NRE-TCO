@@ -1,0 +1,14 @@
+Taalas HC1 (Llama-3.1-8B) power & perf
+perf                       16,960 tok/s/user
+NRE                        $30M
+HNLPU chip power (Table 1) 308.40 W
+  HN Array                   76.92 W
+  VEX                        33.09 W
+  Control Unit                0.01 W
+  Attention Buffer           85.73 W
+  Interconnect Engine        49.65 W
+  HBM PHY                    63.00 W
+minus Interconnect, HBM    195.75 W
+x params (8.03 / 7.30 B)  215.32 W
+x node factor N5->N6 (1.176) 253.32 W
+energy per token           14.94 mJ (66.9 tok/J)
