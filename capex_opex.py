@@ -1,5 +1,5 @@
 # Capex / Opex vs. years in deployment for A100, H100, B200.
-#   Capex = purchase price of one GPU (USD)
+#   Capex = GPU price / GPU_CAPEX_SHARE (GPU is ~75% of total capex)
 #   Opex  = cumulative electricity cost to run that GPU for N years (USD)
 #   y     = Capex / cumulative Opex(N)  -> falls as 1/N; crosses 1.0 when
 #           lifetime electricity spend equals the chip price.
@@ -24,7 +24,11 @@ SOURCES = {
     "B200 SXM price": "https://modal.com/blog/nvidia-b200-pricing",
     "B200 SXM6 TDP": "https://www.techpowerup.com/gpu-specs/b200-sxm6.c4210",
     "Electricity price (2026 US industrial avg, EIA)": "https://www.eia.gov/electricity/monthly/epm_table_grapher.php?t=epmt_5_6_a",
+    "GPU purchase = 75% of capex (Fig. 3)": "https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=11617794",
 }
+
+# GPU purchase is ~75% of total capex; the rest is server/network/facility.
+GPU_CAPEX_SHARE = 0.75
 
 
 CHIPS = {
@@ -59,21 +63,23 @@ years = np.linspace(0.25, max_years, 200)
 rows, summary = [], []
 for name in chips:
     price, tdp = CHIPS[name]
+    capex = price / GPU_CAPEX_SHARE
     opex = annual_opex(tdp, util, kwh)
     rows.append(pd.DataFrame({
         "chip": name,
         "years": years,
-        "capex_over_opex": price / (opex * years),
+        "capex_over_opex": capex / (opex * years),
         "cumulative_opex": opex * years,
     }))
     summary.append({
         "Chip": name,
-        "Capex ($)": price,
+        "GPU price ($)": price,
+        "Capex ($)": round(capex),
         "TDP (W)": tdp,
         "Opex / yr ($)": round(opex),
-        "Capex/Opex @ 3 yr": round(price / (opex * 3), 1),
-        "Capex/Opex @ 5 yr": round(price / (opex * 5), 1),
-        "Breakeven (yr)": round(price / opex, 1),
+        "Capex/Opex @ 3 yr": round(capex / (opex * 3), 1),
+        "Capex/Opex @ 5 yr": round(capex / (opex * 5), 1),
+        "Breakeven (yr)": round(capex / opex, 1),
     })
 
 if not chips:
@@ -101,7 +107,8 @@ points = lines.mark_point(filled=True, size=60).encode(
 breakeven = alt.Chart(pd.DataFrame({"y": [1.0]})).mark_rule(strokeDash=[4, 4], color="gray").encode(y="y:Q")
 
 st.altair_chart((lines + points + breakeven).properties(height=520), use_container_width=True)
-st.caption(f"Utilization {util:.0%}, ${kwh:.4f}/kWh. Dashed line: capex = cumulative opex.")
+st.caption(f"Utilization {util:.0%}, ${kwh:.4f}/kWh. Capex = GPU price / {GPU_CAPEX_SHARE:.0%}. "
+           "Dashed line: capex = cumulative opex.")
 st.dataframe(pd.DataFrame(summary), hide_index=True)
 
 st.subheader("Sources")
