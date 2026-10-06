@@ -25,6 +25,15 @@ SOURCES = {
     "B200 SXM6 TDP": "https://www.techpowerup.com/gpu-specs/b200-sxm6.c4210",
     "Electricity price (2026 US industrial avg, EIA)": "https://www.eia.gov/electricity/monthly/epm_table_grapher.php?t=epmt_5_6_a",
     "GPU purchase = 75% of capex (Fig. 3)": "https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=11617794",
+    "Rental price, on-demand $/GPU-hr (Lambda, Oct 2026)": "https://lambda.ai/pricing",
+    "Rental price ranges across providers (2026)": "https://www.cloudzero.com/blog/cloud-gpu-pricing-comparison/",
+}
+
+# On-demand rental price, USD per GPU-hour (Lambda 8x SXM instances, Oct 2026).
+RENTAL_PRICE = {
+    "A100 80GB SXM": 2.79,
+    "H100 SXM": 3.99,
+    "B200 SXM": 6.69,
 }
 
 # GPU purchase is ~75% of total capex; the rest is server/network/facility.
@@ -58,18 +67,24 @@ with st.sidebar:
     max_years = 6
     log_y = st.checkbox("Log y-axis", value=True)
     chips = st.multiselect("Chips", list(CHIPS), default=list(CHIPS))
+    st.markdown("**Rental price ($/GPU-hr)**")
+    rates = {name: st.number_input(name, 0.0, 50.0, RENTAL_PRICE[name], 0.05, format="%.2f")
+             for name in CHIPS}
 
-years = np.linspace(0.25, max_years, 200)
+years = np.linspace(0, max_years, 241)
 rows, summary = [], []
 for name in chips:
     price, tdp = CHIPS[name]
     capex = price / GPU_CAPEX_SHARE
     opex = annual_opex(tdp, util, kwh)
+    revenue = rates[name] * util * HOURS_PER_YEAR  # billed only while utilized
     rows.append(pd.DataFrame({
         "chip": name,
         "years": years,
-        "capex_over_opex": capex / (opex * years),
+        # undefined at t=0 (no opex yet); NaN points are dropped from the chart
+        "capex_over_opex": np.divide(capex, opex * years, out=np.full_like(years, np.nan), where=years > 0),
         "cumulative_opex": opex * years,
+        "net_cash": (revenue - opex) * years - capex,
     }))
     summary.append({
         "Chip": name,
@@ -80,6 +95,10 @@ for name in chips:
         "Capex/Opex @ 3 yr": round(capex / (opex * 3), 1),
         "Capex/Opex @ 5 yr": round(capex / (opex * 5), 1),
         "Breakeven (yr)": round(capex / opex, 1),
+        "$/GPU-hr": rates[name],
+        "Revenue / yr ($)": round(revenue),
+        "Revenue per kWh ($)": round(rates[name] / (tdp / 1000), 2),
+        "Payback (yr)": round(capex / (revenue - opex), 2) if revenue > opex else float("inf"),
     })
 
 if not chips:
@@ -107,10 +126,27 @@ points = lines.mark_point(filled=True, size=60).encode(
 breakeven = alt.Chart(pd.DataFrame({"y": [1.0]})).mark_rule(strokeDash=[4, 4], color="gray").encode(y="y:Q")
 
 st.altair_chart((lines + points + breakeven).properties(height=520), use_container_width=True)
-st.caption(f"Utilization {util:.0%}, ${kwh:.4f}/kWh. Capex = GPU price / {GPU_CAPEX_SHARE:.0%}. "
+st.caption(f"Utilization {util:.0%}, \\${kwh:.4f}/kWh. Capex = GPU price / {GPU_CAPEX_SHARE:.0%}. "
            "Dashed line: capex = cumulative opex.")
 st.dataframe(pd.DataFrame(summary), hide_index=True)
 
+st.subheader("Cumulative net cash: revenue − electricity − capex")
+cash = alt.Chart(df).mark_line(strokeWidth=2.5).encode(
+    x=alt.X("years:Q", title="Years in deployment", scale=alt.Scale(domain=[0, max_years])),
+    y=alt.Y("net_cash:Q", title="Cumulative net cash ($)", axis=alt.Axis(format="$,.0f")),
+    color=alt.Color("chip:N", title=None, legend=alt.Legend(orient="top-left")),
+    tooltip=[
+        alt.Tooltip("chip:N", title="Chip"),
+        alt.Tooltip("years:Q", title="Years", format=".2f"),
+        alt.Tooltip("net_cash:Q", title="Net cash ($)", format=",.0f"),
+    ],
+)
+zero = alt.Chart(pd.DataFrame({"y": [0.0]})).mark_rule(strokeDash=[4, 4], color="gray").encode(y="y:Q")
+st.altair_chart((cash + zero).properties(height=420), use_container_width=True)
+st.caption("Revenue = rental price (\\$/GPU-hr) × utilization × 8760 h/yr, "
+           "where utilization is the fraction of the year the GPU is rented out. "
+           "Payback is where a line crosses \\$0.")
+
 st.subheader("Sources")
-st.markdown("\n".join(f"- {label}: [{url}]({url})" for label, url in SOURCES.items()))
+st.markdown("\n".join(f"- {label}: [{url}]({url})".replace("$", r"\$") for label, url in SOURCES.items()))
 st.caption("Opex assumes average power = TDP × utilization (no idle floor, no cooling/PUE).")
